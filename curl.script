@@ -1,0 +1,227 @@
+http://localhost:8091/stats
+
+RIAK Link
+Link: </riak/bucket/key>; riaktag=\"whatever\"
+
+RIAK Link walking
+
+_,_,_  : all links
+
+bucket,tag,keep
+
+Nesting possoible_,_,_,_,_,_
+Http Response Headers
+404 Not Dound
+200 OK
+204 No Content
+
+
+curl-Optionen
+-I Header Only
+-X Http Method (GET default)
+-H set HttpHeader
+-d Data
+
+Test:
+curl http://localhost:8091/ping
+  Buckets List
+curl -X GET http://localhost:8091/riak?buckets=true
+  Keys in Bucket
+curl http://localhost:8091/riak/animals?keys=true
+Fehler produzieren
+curl -I http://localhost:8091/riak/no_bucket/no_key
+
+Daten senden
+curl -v -X PUT http://localhost:8091/riak/favs/db -H "Content-Type: text/html" -d "<html><body><h1>My new favorite DB is RIAK</h1></body></html>"
+
+Anschauen: http://localhost:8091/riak/favs/db
+
+Allgemeine URL: http://SERVER:PORT/riak/BUCKET/KEY
+
+Mit JSON
+
+Create: 
+
+	curl -v -X PUT http://localhost:8091/riak/animals/ace -H "Content-Type: application/json" -d '{"nickname" : "The Wonder Dog", "breed" : "German Shepherd"}'
+	return 204
+
+	curl -v -X PUT http://localhost:8091/riak/animals/polly?returnbody=true -H "Content-Type: application/json" -d '{"nickname" : "Sweet Polly Purebred", "breed" : "Purebred"}'
+	return 200
+	
+	Anlegen mit POST
+	curl -i -X POST http://localhost:8091/riak/animals -H "Content-Type: application/json" -d '{"nickname" : "Sergeant Stubby", "breed" : "Terrier"}'
+	return 201: Created, Key unter Location
+
+Read:
+
+	curl http://localhost:8091/riak/animals/6VZc2o7zKxq2B34kJrm1S0ma3PO
+Delete:
+	curl -i -X DELETE http://localhost:8091/riak/animals/6VZc2o7zKxq2B34kJrm1S0ma3PO
+	return 204
+			
+			
+Links
+
+(Cage knows polly)
+
+curl -X PUT http://localhost:8091/riak/cages/1 \
+-H "Content-Type: application/json" \
+-H "Link: </riak/animals/polly>; riaktag=\"contains\"" \
+-d '{"room" : 101}
+
+(Polly is unaware of cage:
+
+curl -i http://localhost:8091/riak/animals/polly
+
+Multi-Links
+
+(cage 2 conatains ace, is next to cage 1
+curl -X PUT http://localhost:8091/riak/cages/2 \
+-H "Content-Type: application/json" \
+-H "Link:</riak/animals/ace>;riaktag=\"contains\",
+</riak/cages/1>;riaktag=\"next_to\"" \
+-d '{"room" : 101}'
+
+Link Walking
+
+All links for cage 1
+curl http://localhost:8091/riak/cages/1/_,_,_
+
+All links for cag 2 to bucket
+
+curl http://localhost:8091/riak/cages/2/animals,_,_
+
+All links for v´cage 2 with tag
+curl http://localhost:8091/riak/cages/2/_,next_to,_
+
+(only polly, keep = 0
+curl http://localhost:8091/riak/cages/2/_,next_to,0/animals,_,_
+
+both link values, keep = 1
+curl http://localhost:8091/riak/cages/2/_,next_to,1/_,_,_
+
+Metadata: Header X-RIAK-META
+curl -X PUT http://localhost:8091/riak/cages/1 \
+-H "Content-Type: application/json" \
+-H "X-Riak-Meta-Color: Pink" \
+-H "Link: </riak/animals/polly>; riaktag=\"contains\"" \
+-d '{"room" : 101}'
+
+Mime Types
+
+curl -X PUT http://localhost:8091/riak/photos/polly.jpg \
+-H "Content-type: image/jpeg" \
+-H "Link: </riak/animals/polly>; riaktag=\"photo\"" \
+--data-binary @polly_image.jpg
+
+
+http://localhost:8091/riak/photos/polly.jpg
+
+
+gem install riak-client json
+
+
+eine RIAK MapReduce-Funktion
+map = function(v) {
+var parsedData = JSON.parse(v.values[0].data);
+if(parsedData.country === 'CA')
+return [{count : 1}];
+else
+return [{count : 0}];
+}
+reduce = function(mappedVals) {
+var sums = {count : 0};
+for (var i in mappedVals) {
+sums[count] += mappedVals[i][count];
+}
+return [sums];
+}
+
+
+With REST:
+
+curl -X POST -H "content-type:application/json" \
+http://localhost:8091/mapred --data @-
+{
+"inputs":[
+["rooms","101"],["rooms","102"],["rooms","103"]
+],
+"query":[
+{"map":{
+"language":"javascript",
+"source":
+"function(v) {
+/* From the Riak object, pull data and parse it as JSON */
+var parsed_data = JSON.parse(v.values[0].data);
+var data = {};
+/* Key capacity number by room style string */
+data[parsed_data.style] = parsed_data.capacity;
+return [data];
+}"
+}}
+]
+}
+
+Speichern von Store Functions
+
+curl -X PUT -H "content-type:application/json" \
+http://localhost:8091/riak/my_functions/map_capacity --data @-
+function(v) {
+var parsed_data = JSON.parse(v.values[0].data);
+var data = {};
+data[parsed_data.style] = parsed_data.capacity;
+return [data];
+}
+
+
+curl -X POST -H "content-type:application/json" \
+http://localhost:8091/mapred --data @-
+{
+"inputs":"rooms",
+"query":[
+{"map":{
+"language":"javascript",
+"bucket":"my_functions",
+"key":"map_capacity"
+}},
+{"reduce":{
+"language":"javascript",
+"source":
+"function(v) {
+var totals = {};
+for (var i in v) {
+for(var style in v[i]) {
+if( totals[style] ) totals[style] += v[i][style];
+else totals[style] = v[i][style];
+}
+}
+return [totals];
+}"
+}}
+]
+}
+
+
+
+Line Walking with Mapreduce
+
+curl -X POST -H "content-type:application/json" \
+http://localhost:8091/mapred --data @-
+{
+"inputs":{
+"bucket":"cages",
+"key_filters":[["eq", "2"]]
+},
+"query":[
+{"link":{
+"bucket":"animals",
+"keep":false
+}},
+{"map":{
+"language":"javascript",
+"source":
+"function(v) { return [v]; }"
+}}
+]
+}
+
